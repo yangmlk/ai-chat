@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Send, Loader2, Camera, X, Check } from 'lucide-react';
 
 interface ChatInputProps {
@@ -6,15 +6,47 @@ interface ChatInputProps {
   isLoading: boolean;
 }
 
+interface ZoomCapability {
+  min: number;
+  max: number;
+  step?: number;
+}
+
+interface ExtendedMediaTrackCapabilities extends MediaTrackCapabilities {
+  zoom?: ZoomCapability;
+  torch?: boolean | boolean[];
+}
+
+type ControllableVideoTrack = MediaStreamTrack & {
+  getCapabilities?: () => ExtendedMediaTrackCapabilities;
+  applyConstraints: (constraints: MediaTrackConstraints) => Promise<void>;
+};
+
 export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
   const [input, setInput] = useState('');
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [showCamera, setShowCamera] = useState(false);
   const [cameraError, setCameraError] = useState('');
+  const [zoom, setZoom] = useState(1);
+  const [zoomRange, setZoomRange] = useState<ZoomCapability | null>(null);
+  const [torchSupported, setTorchSupported] = useState(false);
+  const [torchEnabled, setTorchEnabled] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  const getVideoTrack = useCallback(() => {
+    const track = streamRef.current?.getVideoTracks()[0];
+    return track as ControllableVideoTrack | undefined;
+  }, []);
+
+  const resetCameraControls = useCallback(() => {
+    setZoom(1);
+    setZoomRange(null);
+    setTorchSupported(false);
+    setTorchEnabled(false);
+  }, []);
 
   const handleSubmit = useCallback(() => {
     const trimmed = input.trim();
@@ -40,9 +72,61 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
     target.style.height = Math.min(target.scrollHeight, 200) + 'px';
   };
 
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    setShowCamera(false);
+    resetCameraControls();
+  }, [resetCameraControls]);
+
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+  }, [stopCamera]);
+
+  const initializeCameraControls = useCallback(() => {
+    const track = getVideoTrack();
+    const capabilities = track?.getCapabilities?.();
+    const settings = track?.getSettings?.();
+
+    if (!capabilities) {
+      resetCameraControls();
+      return;
+    }
+
+    const zoomCapability = capabilities.zoom;
+    if (zoomCapability && zoomCapability.max > zoomCapability.min) {
+      setZoomRange({
+        min: zoomCapability.min,
+        max: zoomCapability.max,
+        step: zoomCapability.step ?? 0.1,
+      });
+      setZoom(typeof settings?.zoom === 'number' ? settings.zoom : zoomCapability.min);
+    } else {
+      setZoom(1);
+      setZoomRange(null);
+    }
+
+    const hasTorch = Array.isArray(capabilities.torch)
+      ? capabilities.torch.includes(true)
+      : Boolean(capabilities.torch);
+    setTorchSupported(hasTorch);
+    setTorchEnabled(false);
+  }, [getVideoTrack, resetCameraControls]);
+
   // 启动相机
   const startCamera = async () => {
     setCameraError('');
+    resetCameraControls();
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment' },
@@ -56,10 +140,47 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
           videoRef.current.srcObject = stream;
           videoRef.current.play().catch(() => {});
         }
+
+        initializeCameraControls();
       }, 100);
     } catch (err) {
       console.error('Camera error:', err);
       setCameraError('无法访问相机，请检查权限设置');
+    }
+  };
+
+  const handleZoomChange = async (value: number) => {
+    const track = getVideoTrack();
+    if (!track || !zoomRange) return;
+
+    setZoom(value);
+    setCameraError('');
+
+    try {
+      await track.applyConstraints({
+        advanced: [{ zoom: value }] as MediaTrackConstraintSet[],
+      });
+    } catch (err) {
+      console.error('Zoom error:', err);
+      setCameraError('当前设备不支持变焦调节');
+    }
+  };
+
+  const toggleTorch = async () => {
+    const track = getVideoTrack();
+    if (!track || !torchSupported) return;
+
+    const nextTorchState = !torchEnabled;
+    setCameraError('');
+
+    try {
+      await track.applyConstraints({
+        advanced: [{ torch: nextTorchState }] as MediaTrackConstraintSet[],
+      });
+      setTorchEnabled(nextTorchState);
+    } catch (err) {
+      console.error('Torch error:', err);
+      setCameraError('当前设备不支持闪光灯控制');
     }
   };
 
@@ -79,15 +200,6 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
     const imageData = canvas.toDataURL('image/jpeg', 0.9);
     setCapturedImage(imageData);
     stopCamera();
-  };
-
-  // 停止相机
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    setShowCamera(false);
   };
 
   // 取消拍照
@@ -127,6 +239,38 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
               muted
               className="w-full h-full object-cover"
             />
+            <div className="absolute top-4 left-4 right-4 flex items-start justify-between gap-3">
+              {zoomRange && (
+                <div className="bg-black/50 backdrop-blur-sm rounded-xl px-4 py-3 text-white min-w-[220px]">
+                  <div className="flex items-center justify-between gap-3 text-xs mb-2">
+                    <span>变焦</span>
+                    <span>{zoom.toFixed(1)}x</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={zoomRange.min}
+                    max={zoomRange.max}
+                    step={zoomRange.step ?? 0.1}
+                    value={zoom}
+                    onChange={(e) => void handleZoomChange(Number(e.target.value))}
+                    className="w-full accent-[#4a9eff]"
+                  />
+                </div>
+              )}
+
+              {torchSupported && (
+                <button
+                  onClick={() => void toggleTorch()}
+                  className={`px-4 py-2 rounded-xl text-sm transition-colors ${
+                    torchEnabled
+                      ? 'bg-[#4a9eff] text-white'
+                      : 'bg-black/50 text-white hover:bg-black/60'
+                  }`}
+                >
+                  {torchEnabled ? '闪光灯开' : '闪光灯关'}
+                </button>
+              )}
+            </div>
             {/* 取景框提示 */}
             <div className="absolute inset-0 pointer-events-none">
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 border-2 border-white/50 rounded-lg">

@@ -190,7 +190,7 @@ export default function Home() {
 
         // 处理 429 速率限制错误
         if (errorMessage.includes('429') || errorMessage.includes('Too Many Requests')) {
-          displayMessage = '请求太频繁了，请等待 1-2 分钟后再试。NVIDIA API 对免费用户有速率限制。';
+          displayMessage = '请求太频繁了，请等待 1-2 分钟后再试。';
         }
 
         updateMessage(
