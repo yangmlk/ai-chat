@@ -8,6 +8,7 @@ const PREFERRED_VOICE_NAME = 'Microsoft HsiaoChen Online (Natural) - Chinese (Ta
 interface ChatMessageProps {
   message: Message;
   isLoading?: boolean;
+  autoPlayVoice?: boolean;
 }
 
 function estimateTokens(text: string): number {
@@ -31,7 +32,7 @@ function pickPreferredVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoic
   );
 }
 
-export default function ChatMessage({ message, isLoading }: ChatMessageProps) {
+export default function ChatMessage({ message, isLoading, autoPlayVoice = true }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const [showReasoning, setShowReasoning] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -49,12 +50,12 @@ export default function ChatMessage({ message, isLoading }: ChatMessageProps) {
     setIsSpeaking(false);
   }, []);
 
-  const startSpeaking = useCallback(() => {
+  const startSpeaking = useCallback((textOverride?: string) => {
     if (!window.speechSynthesis) return;
 
     stopSpeaking();
 
-    const text = getCleanTextForSpeech(message.content).trim();
+    const text = textOverride ? textOverride : getCleanTextForSpeech(message.content).trim();
     if (!text) return;
 
     const utterance = new SpeechSynthesisUtterance(text);
@@ -98,6 +99,17 @@ export default function ChatMessage({ message, isLoading }: ChatMessageProps) {
       }
     };
   }, []);
+
+  // 自动朗读 AI 的完整回复（不是用户消息，不是加载中，且内容为空后竟有值了）
+  useEffect(() => {
+    if (autoPlayVoice && !isLoading && message.role === 'assistant' && message.content) {
+      // 延迟一点让浏览器有时间加载语音列表
+      const timer = setTimeout(() => {
+        startSpeaking();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [message.content, isLoading, autoPlayVoice, startSpeaking]);
 
   if (isUser) {
     return (
