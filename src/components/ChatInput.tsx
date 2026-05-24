@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Send, Loader2, Camera, X, Check } from 'lucide-react';
+import { Send, Loader2, Camera, X, Check, Mic, MicOff } from 'lucide-react';
 import type { MessageImage, OutgoingMessagePayload } from '@/types';
 
 interface ChatInputProps {
@@ -39,6 +39,14 @@ type ControllableVideoTrack = MediaStreamTrack & {
   applyConstraints: (constraints: MediaTrackConstraints) => Promise<void>;
 };
 
+// 声明 Web Speech API 类型
+declare global {
+  interface Window {
+    SpeechRecognition: typeof SpeechRecognition;
+    webkitSpeechRecognition: typeof SpeechRecognition;
+  }
+}
+
 export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
   const [input, setInput] = useState('');
   const [capturedImage, setCapturedImage] = useState<MessageImage | null>(null);
@@ -52,6 +60,9 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
   const [focusRange, setFocusRange] = useState<RangeCapability | null>(null);
   const [focusDistance, setFocusDistance] = useState(0);
   const [singleShotFocusSupported, setSingleShotFocusSupported] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [interimTranscript, setInterimTranscript] = useState('');
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -72,14 +83,16 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
     setSingleShotFocusSupported(false);
   }, []);
 
-  const handleSubmit = useCallback(() => {
-    const trimmed = input.trim();
+  const handleSubmit = useCallback((textToSend?: string) => {
+    const finalText = textToSend !== undefined ? textToSend : input;
+    const trimmed = finalText.trim();
     if ((!trimmed && !capturedImage) || isLoading) return;
     onSend({
       content: trimmed,
       image: capturedImage || undefined,
     });
     setInput('');
+    setInterimTranscript('');
     setCapturedImage(null);
     setShowPhotoPreview(false);
     if (textareaRef.current) {
@@ -99,6 +112,74 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
     target.style.height = 'auto';
     target.style.height = Math.min(target.scrollHeight, 200) + 'px';
   };
+
+  // 语音输入：开启/关闭语音识别
+  const toggleVoiceInput = useCallback(() => {
+    if (isListening) {
+      // 停止识别并自动发送
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    } else {
+      // 开始识别
+      if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        alert('您的浏览器不支持语音识别，请使用 Chrome 或 Edge 浏览器');
+        return;
+      }
+
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'zh-CN';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+
+      let finalTranscript = '';
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setInterimTranscript('');
+      };
+
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        let interim = '';
+        let final = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            final += transcript;
+          } else {
+            interim += transcript;
+          }
+        }
+        if (final) {
+          finalTranscript += final;
+        }
+        setInterimTranscript(interim);
+        setInput(finalTranscript + interim);
+      };
+
+      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+        console.error('语音识别错误:', event.error);
+        if (event.error === 'not-allowed') {
+          alert('请允许使用麦克风权限');
+        }
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+        setInterimTranscript('');
+        // 如果有识别内容，自动发送
+        const fullText = finalTranscript.trim();
+        if (fullText) {
+          handleSubmit(fullText);
+        }
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    }
+  }, [isListening, handleSubmit]);
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -363,6 +444,15 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
     setShowPhotoPreview(false);
   };
 
+  // 清理语音识别
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, []);
+
   return (
     <>
       {/* 相机全屏界面 */}
@@ -544,17 +634,35 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             onInput={handleInput}
-            placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
+            placeholder={isListening ? '正在听您说...' : '输入消息... (Enter 发送, Shift+Enter 换行)'}
             rows={1}
-            className="w-full bg-[#1a1a1a] text-[#e8e4d9] rounded-xl pl-4 pr-24 py-3 resize-none outline-none border border-[#333] focus:border-[#4a9eff] focus:ring-1 focus:ring-[#4a9eff]/30 transition-all placeholder:text-gray-500 max-h-[200px]"
+            className={`w-full bg-[#1a1a1a] text-[#e8e4d9] rounded-xl pl-4 pr-24 py-3 resize-none outline-none border resize-none outline-none transition-all placeholder:text-gray-500 max-h-[200px] ${
+              isListening
+                ? 'border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]'
+                : 'border-[#333] focus:border-[#4a9eff] focus:ring-1 focus:ring-[#4a9eff]/30'
+            }`}
             disabled={isLoading}
           />
+
+          {/* 语音输入按钮 */}
+          <button
+            onClick={toggleVoiceInput}
+            disabled={isLoading}
+            className={`absolute right-14 bottom-3 p-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              isListening
+                ? 'bg-red-500/20 text-red-400 animate-pulse border border-red-500/30'
+                : 'bg-[#333] text-[#e8e4d9] hover:bg-[#444]'
+            }`}
+            title={isListening ? '停止录音并发送' : '语音输入'}
+          >
+            {isListening ? <MicOff size={16} /> : <Mic size={16} />}
+          </button>
 
           {/* 相机按钮 */}
           <button
             onClick={startCamera}
             disabled={isLoading}
-            className="absolute right-14 bottom-3 p-2 rounded-lg bg-[#333] text-[#e8e4d9] hover:bg-[#444] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="absolute right-24 bottom-3 p-2 rounded-lg bg-[#333] text-[#e8e4d9] hover:bg-[#444] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             title="拍照"
           >
             <Camera size={16} />
@@ -562,7 +670,7 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
 
           {/* 发送按钮 */}
           <button
-            onClick={handleSubmit}
+            onClick={() => handleSubmit()}
             disabled={isLoading || (!input.trim() && !capturedImage)}
             className="absolute right-3 bottom-3 p-2 rounded-lg bg-[#4a9eff] text-white hover:bg-[#3a8eef] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
