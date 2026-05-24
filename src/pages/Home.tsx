@@ -147,7 +147,10 @@ export default function Home() {
 
       try {
         // Build messages with system prompt at the beginning
-        const historyMessages = currentConversation!.messages.map(toApiMessage);
+        // 只保留最近 10 条历史消息，避免请求体过大
+        const MAX_HISTORY = 10;
+        const recentMessages = currentConversation!.messages.slice(-MAX_HISTORY);
+        const historyMessages = recentMessages.map(toApiMessage);
         const currentPrompt = `${USER_PREFIX}\n\n${content.trim() || IMAGE_ANALYSIS_PROMPT}`;
         const currentUserMessage: ChatRequestMessage = image
           ? {
