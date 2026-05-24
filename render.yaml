@@ -1,8 +1,9 @@
 services:
   - type: web
-    name: ai-chat-app
-    env: node
-    buildCommand: npm install && npm run build
+    name: ai-chat
+    runtime: node
+    plan: free
+    buildCommand: npm install
     startCommand: node api/server.js
     envVars:
       - key: NODE_VERSION
