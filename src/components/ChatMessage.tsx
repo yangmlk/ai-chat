@@ -3,6 +3,8 @@ import { User, Bot, ChevronDown, ChevronUp, Clock, Circle, Volume2, VolumeX } fr
 import MarkdownRenderer from './MarkdownRenderer';
 import type { Message } from '@/types';
 
+const PREFERRED_VOICE_NAME = 'Microsoft HsiaoChen Online (Natural) - Chinese (Taiwan)';
+
 interface ChatMessageProps {
   message: Message;
   isLoading?: boolean;
@@ -18,6 +20,15 @@ function getCleanTextForSpeech(html: string): string {
   const tmp = document.createElement('div');
   tmp.innerHTML = html;
   return tmp.textContent || tmp.innerText || '';
+}
+
+function pickPreferredVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | undefined {
+  return (
+    voices.find((voice) => voice.name === PREFERRED_VOICE_NAME) ||
+    voices.find((voice) => voice.name.includes('HsiaoChen')) ||
+    voices.find((voice) => voice.lang.toLowerCase() === 'zh-tw') ||
+    voices.find((voice) => voice.lang.toLowerCase().startsWith('zh'))
+  );
 }
 
 export default function ChatMessage({ message, isLoading }: ChatMessageProps) {
@@ -43,18 +54,19 @@ export default function ChatMessage({ message, isLoading }: ChatMessageProps) {
 
     stopSpeaking();
 
-    const text = message.content.trim();
+    const text = getCleanTextForSpeech(message.content).trim();
     if (!text) return;
 
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'zh-CN';
+    utterance.lang = 'zh-TW';
     utterance.rate = 1;
     utterance.pitch = 1;
 
     const voices = window.speechSynthesis.getVoices();
-    const zhVoice = voices.find(v => v.lang.startsWith('zh'));
-    if (zhVoice) {
-      utterance.voice = zhVoice;
+    const preferredVoice = pickPreferredVoice(voices);
+    if (preferredVoice) {
+      utterance.voice = preferredVoice;
+      utterance.lang = preferredVoice.lang;
     }
 
     utterance.onstart = () => setIsSpeaking(true);
