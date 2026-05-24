@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const DEFAULT_TEXT_MODEL = process.env.TEXT_MODEL || 'moonshotai/kimi-k2.6';
-const DEFAULT_VISION_MODEL = process.env.VISION_MODEL || 'meta/llama-3.2-90b-vision-instruct';
+const DEFAULT_VISION_MODEL = process.env.VISION_MODEL || 'moonshotai/kimi-k2.6';
 
 function hasImageContent(messages = []) {
   return messages.some(
