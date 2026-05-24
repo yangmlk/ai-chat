@@ -116,7 +116,10 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
           );
         },
         strong({ children }) {
-          return <strong className="font-bold text-[#f0f0f0]">{children}</strong>;
+          return <strong className="font-bold text-[#4a9eff]">{children}</strong>;
+        },
+        em({ children }) {
+          return <em className="italic text-[#4a9eff]/80">{children}</em>;
         },
       }}
     >

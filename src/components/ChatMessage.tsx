@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { User, Bot, ChevronDown, ChevronUp, Clock, Circle } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { User, Bot, ChevronDown, ChevronUp, Clock, Circle, Volume2, VolumeX } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer';
 import type { Message } from '@/types';
 
@@ -14,13 +14,78 @@ function estimateTokens(text: string): number {
   return Math.ceil(chineseChars * 1.5 + englishWords * 0.75);
 }
 
+function getCleanTextForSpeech(html: string): string {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return tmp.textContent || tmp.innerText || '';
+}
+
 export default function ChatMessage({ message, isLoading }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const [showReasoning, setShowReasoning] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   const tokenCount = message.tokens || estimateTokens(message.content);
   const generationTime = message.generationTime;
   const reasoning = message.reasoning;
+
+  const stopSpeaking = useCallback(() => {
+    if (utteranceRef.current) {
+      window.speechSynthesis.cancel();
+      utteranceRef.current = null;
+    }
+    setIsSpeaking(false);
+  }, []);
+
+  const startSpeaking = useCallback(() => {
+    if (!window.speechSynthesis) return;
+
+    stopSpeaking();
+
+    const text = message.content.trim();
+    if (!text) return;
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'zh-CN';
+    utterance.rate = 1;
+    utterance.pitch = 1;
+
+    const voices = window.speechSynthesis.getVoices();
+    const zhVoice = voices.find(v => v.lang.startsWith('zh'));
+    if (zhVoice) {
+      utterance.voice = zhVoice;
+    }
+
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => {
+      utteranceRef.current = null;
+      setIsSpeaking(false);
+    };
+    utterance.onerror = () => {
+      utteranceRef.current = null;
+      setIsSpeaking(false);
+    };
+
+    utteranceRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
+  }, [message.content, stopSpeaking]);
+
+  const toggleSpeaking = useCallback(() => {
+    if (isSpeaking) {
+      stopSpeaking();
+    } else {
+      startSpeaking();
+    }
+  }, [isSpeaking, startSpeaking, stopSpeaking]);
+
+  useEffect(() => {
+    return () => {
+      if (utteranceRef.current) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   if (isUser) {
     return (
@@ -97,6 +162,22 @@ export default function ChatMessage({ message, isLoading }: ChatMessageProps) {
               <Clock size={10} className="text-[#4a9eff]" />
               <span>{(generationTime / 1000).toFixed(2)}s</span>
             </div>
+          )}
+
+          {/* Speech Play Button */}
+          {!isLoading && message.content && (
+            <button
+              onClick={toggleSpeaking}
+              className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md border transition-colors ${
+                isSpeaking
+                  ? 'bg-[#4a9eff]/20 text-[#4a9eff] border-[#4a9eff]/30'
+                  : 'bg-[#1a1a1a] text-gray-500 border-[#333] hover:text-[#e8e4d9]'
+              }`}
+              title={isSpeaking ? '停止朗读' : '朗读回复'}
+            >
+              {isSpeaking ? <VolumeX size={10} /> : <Volume2 size={10} />}
+              <span>{isSpeaking ? '停止' : '朗读'}</span>
+            </button>
           )}
         </div>
       </div>
