@@ -185,12 +185,18 @@ export default function Home() {
         addTokens(currentConversationId, finalTokens);
         setCurrentTokens(finalTokens);
       } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : '未知错误';
+        const errorMessage = error instanceof Error ? error.message : '未知错误';
+        let displayMessage = `抱歉，发生了错误：${errorMessage}`;
+
+        // 处理 429 速率限制错误
+        if (errorMessage.includes('429') || errorMessage.includes('Too Many Requests')) {
+          displayMessage = '请求太频繁了，请等待 1-2 分钟后再试。NVIDIA API 对免费用户有速率限制。';
+        }
+
         updateMessage(
           currentConversationId,
           assistantMessageId,
-          `抱歉，发生了错误：${errorMessage}`
+          displayMessage
         );
       } finally {
         setIsLoading(false);
