@@ -3,6 +3,17 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+const DEFAULT_TEXT_MODEL = process.env.TEXT_MODEL || 'moonshotai/kimi-k2.6';
+const DEFAULT_VISION_MODEL = process.env.VISION_MODEL || 'meta/llama-3.2-90b-vision-instruct';
+
+function hasImageContent(messages = []) {
+  return messages.some(
+    (message) =>
+      Array.isArray(message?.content) &&
+      message.content.some((part) => part?.type === 'image_url' && part?.image_url?.url)
+  );
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -19,6 +30,7 @@ app.use(express.static(path.join(__dirname, '../dist')));
 app.post('/api/chat', async (req, res) => {
   try {
     const { messages, temperature, max_tokens, apiKey, apiUrl } = req.body;
+    const model = hasImageContent(messages) ? DEFAULT_VISION_MODEL : DEFAULT_TEXT_MODEL;
 
     const response = await fetch(apiUrl, {
       method: 'POST',
@@ -27,7 +39,7 @@ app.post('/api/chat', async (req, res) => {
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'moonshotai/kimi-k2.6',
+        model,
         messages,
         temperature,
         max_tokens,

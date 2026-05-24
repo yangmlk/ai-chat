@@ -1,36 +1,57 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Send, Loader2, Camera, X, Check } from 'lucide-react';
+import type { MessageImage, OutgoingMessagePayload } from '@/types';
 
 interface ChatInputProps {
-  onSend: (message: string) => void;
+  onSend: (message: OutgoingMessagePayload) => void;
   isLoading: boolean;
 }
 
-interface ZoomCapability {
+interface RangeCapability {
   min: number;
   max: number;
   step?: number;
 }
 
 interface ExtendedMediaTrackCapabilities extends MediaTrackCapabilities {
-  zoom?: ZoomCapability;
+  zoom?: RangeCapability;
   torch?: boolean | boolean[];
+  focusMode?: string[];
+  focusDistance?: RangeCapability;
 }
+
+interface ExtendedMediaTrackSettings extends MediaTrackSettings {
+  zoom?: number;
+  focusDistance?: number;
+}
+
+type FocusMode = 'manual' | 'continuous' | 'single-shot';
+type ExtendedConstraintSet = MediaTrackConstraintSet & {
+  zoom?: number;
+  torch?: boolean;
+  focusMode?: FocusMode;
+  focusDistance?: number;
+};
 
 type ControllableVideoTrack = MediaStreamTrack & {
   getCapabilities?: () => ExtendedMediaTrackCapabilities;
+  getSettings?: () => ExtendedMediaTrackSettings;
   applyConstraints: (constraints: MediaTrackConstraints) => Promise<void>;
 };
 
 export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
   const [input, setInput] = useState('');
-  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [capturedImage, setCapturedImage] = useState<MessageImage | null>(null);
   const [showCamera, setShowCamera] = useState(false);
+  const [showPhotoPreview, setShowPhotoPreview] = useState(false);
   const [cameraError, setCameraError] = useState('');
   const [zoom, setZoom] = useState(1);
-  const [zoomRange, setZoomRange] = useState<ZoomCapability | null>(null);
+  const [zoomRange, setZoomRange] = useState<RangeCapability | null>(null);
   const [torchSupported, setTorchSupported] = useState(false);
   const [torchEnabled, setTorchEnabled] = useState(false);
+  const [focusRange, setFocusRange] = useState<RangeCapability | null>(null);
+  const [focusDistance, setFocusDistance] = useState(0);
+  const [singleShotFocusSupported, setSingleShotFocusSupported] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -46,18 +67,25 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
     setZoomRange(null);
     setTorchSupported(false);
     setTorchEnabled(false);
+    setFocusRange(null);
+    setFocusDistance(0);
+    setSingleShotFocusSupported(false);
   }, []);
 
   const handleSubmit = useCallback(() => {
     const trimmed = input.trim();
-    if (!trimmed || isLoading) return;
-    onSend(trimmed);
+    if ((!trimmed && !capturedImage) || isLoading) return;
+    onSend({
+      content: trimmed,
+      image: capturedImage || undefined,
+    });
     setInput('');
     setCapturedImage(null);
+    setShowPhotoPreview(false);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-  }, [input, isLoading, onSend]);
+  }, [capturedImage, input, isLoading, onSend]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -120,6 +148,33 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
       : Boolean(capabilities.torch);
     setTorchSupported(hasTorch);
     setTorchEnabled(false);
+
+    const focusModes = capabilities.focusMode || [];
+    const focusCapability = capabilities.focusDistance;
+    const supportsManualFocus =
+      focusModes.includes('manual') &&
+      !!focusCapability &&
+      focusCapability.max > focusCapability.min;
+
+    if (supportsManualFocus && focusCapability) {
+      setFocusRange({
+        min: focusCapability.min,
+        max: focusCapability.max,
+        step: focusCapability.step ?? 1,
+      });
+      setFocusDistance(
+        typeof settings?.focusDistance === 'number'
+          ? settings.focusDistance
+          : focusCapability.min
+      );
+    } else {
+      setFocusRange(null);
+      setFocusDistance(0);
+    }
+
+    setSingleShotFocusSupported(
+      focusModes.includes('single-shot') || focusModes.includes('continuous')
+    );
   }, [getVideoTrack, resetCameraControls]);
 
   // 启动相机
@@ -129,7 +184,11 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
         audio: false,
       });
       streamRef.current = stream;
@@ -158,7 +217,7 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
 
     try {
       await track.applyConstraints({
-        advanced: [{ zoom: value }] as MediaTrackConstraintSet[],
+        advanced: [{ zoom: value } as ExtendedConstraintSet],
       });
     } catch (err) {
       console.error('Zoom error:', err);
@@ -175,12 +234,64 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
 
     try {
       await track.applyConstraints({
-        advanced: [{ torch: nextTorchState }] as MediaTrackConstraintSet[],
+        advanced: [{ torch: nextTorchState } as ExtendedConstraintSet],
       });
       setTorchEnabled(nextTorchState);
     } catch (err) {
       console.error('Torch error:', err);
       setCameraError('当前设备不支持闪光灯控制');
+    }
+  };
+
+  const handleFocusDistanceChange = async (value: number) => {
+    const track = getVideoTrack();
+    if (!track || !focusRange) return;
+
+    setFocusDistance(value);
+    setCameraError('');
+
+    try {
+      await track.applyConstraints({
+        advanced: [
+          {
+            focusMode: 'manual',
+            focusDistance: value,
+          } as ExtendedConstraintSet,
+        ],
+      });
+    } catch (err) {
+      console.error('Focus error:', err);
+      setCameraError('当前设备不支持手动对焦');
+    }
+  };
+
+  const refocusCamera = async () => {
+    const track = getVideoTrack();
+    if (!track || !singleShotFocusSupported) return;
+
+    setCameraError('');
+
+    try {
+      await track.applyConstraints({
+        advanced: [
+          {
+            focusMode: 'single-shot',
+          } as ExtendedConstraintSet,
+        ],
+      });
+    } catch (err) {
+      try {
+        await track.applyConstraints({
+          advanced: [
+            {
+              focusMode: 'continuous',
+            } as ExtendedConstraintSet,
+          ],
+        });
+      } catch (fallbackError) {
+        console.error('Refocus error:', err, fallbackError);
+        setCameraError('当前设备不支持重新对焦');
+      }
     }
   };
 
@@ -198,24 +309,24 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     const imageData = canvas.toDataURL('image/jpeg', 0.9);
-    setCapturedImage(imageData);
+    setCapturedImage({
+      dataUrl: imageData,
+      mimeType: 'image/jpeg',
+    });
+    setShowPhotoPreview(true);
     stopCamera();
   };
 
   // 取消拍照
   const cancelCamera = () => {
     stopCamera();
-    setCapturedImage(null);
+    setShowPhotoPreview(false);
   };
 
   // 确认使用照片
   const confirmPhoto = () => {
     if (capturedImage) {
-      // 将图片添加到输入框（以markdown图片格式）
-      const imageMarkdown = `![拍照图片](${capturedImage})\n`;
-      setInput(prev => prev + imageMarkdown);
-      setCapturedImage(null);
-      // 聚焦输入框
+      setShowPhotoPreview(false);
       setTimeout(() => textareaRef.current?.focus(), 100);
     }
   };
@@ -223,6 +334,7 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
   // 删除已拍照片
   const removePhoto = () => {
     setCapturedImage(null);
+    setShowPhotoPreview(false);
   };
 
   return (
@@ -239,37 +351,81 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
               muted
               className="w-full h-full object-cover"
             />
-            <div className="absolute top-4 left-4 right-4 flex items-start justify-between gap-3">
-              {zoomRange && (
-                <div className="bg-black/50 backdrop-blur-sm rounded-xl px-4 py-3 text-white min-w-[220px]">
-                  <div className="flex items-center justify-between gap-3 text-xs mb-2">
-                    <span>变焦</span>
-                    <span>{zoom.toFixed(1)}x</span>
+            <button
+              type="button"
+              onClick={() => void refocusCamera()}
+              disabled={!singleShotFocusSupported}
+              className="absolute inset-0"
+              aria-label="点按重新对焦"
+            />
+            <div className="absolute top-4 left-4 right-4 flex items-start justify-between gap-3 pointer-events-none">
+              <div className="flex flex-col gap-3 pointer-events-auto">
+                {zoomRange && (
+                  <div className="bg-black/50 backdrop-blur-sm rounded-xl px-4 py-3 text-white min-w-[220px]">
+                    <div className="flex items-center justify-between gap-3 text-xs mb-2">
+                      <span>变焦</span>
+                      <span>{zoom.toFixed(1)}x</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={zoomRange.min}
+                      max={zoomRange.max}
+                      step={zoomRange.step ?? 0.1}
+                      value={zoom}
+                      onChange={(e) => void handleZoomChange(Number(e.target.value))}
+                      className="w-full accent-[#4a9eff]"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    min={zoomRange.min}
-                    max={zoomRange.max}
-                    step={zoomRange.step ?? 0.1}
-                    value={zoom}
-                    onChange={(e) => void handleZoomChange(Number(e.target.value))}
-                    className="w-full accent-[#4a9eff]"
-                  />
-                </div>
-              )}
+                )}
 
-              {torchSupported && (
-                <button
-                  onClick={() => void toggleTorch()}
-                  className={`px-4 py-2 rounded-xl text-sm transition-colors ${
-                    torchEnabled
-                      ? 'bg-[#4a9eff] text-white'
-                      : 'bg-black/50 text-white hover:bg-black/60'
-                  }`}
-                >
-                  {torchEnabled ? '闪光灯开' : '闪光灯关'}
-                </button>
-              )}
+                {focusRange && (
+                  <div className="bg-black/50 backdrop-blur-sm rounded-xl px-4 py-3 text-white min-w-[220px]">
+                    <div className="flex items-center justify-between gap-3 text-xs mb-2">
+                      <span>手动对焦</span>
+                      <span>{focusDistance.toFixed(1)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={focusRange.min}
+                      max={focusRange.max}
+                      step={focusRange.step ?? 1}
+                      value={focusDistance}
+                      onChange={(e) => void handleFocusDistanceChange(Number(e.target.value))}
+                      className="w-full accent-[#4a9eff]"
+                    />
+                  </div>
+                )}
+
+                {singleShotFocusSupported && (
+                  <div className="text-xs text-white/80 bg-black/40 rounded-lg px-3 py-2">
+                    点按画面可重新对焦
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-3 pointer-events-auto">
+                {torchSupported && (
+                  <button
+                    onClick={() => void toggleTorch()}
+                    className={`px-4 py-2 rounded-xl text-sm transition-colors ${
+                      torchEnabled
+                        ? 'bg-[#4a9eff] text-white'
+                        : 'bg-black/50 text-white hover:bg-black/60'
+                    }`}
+                  >
+                    {torchEnabled ? '闪光灯开' : '闪光灯关'}
+                  </button>
+                )}
+
+                {singleShotFocusSupported && (
+                  <button
+                    onClick={() => void refocusCamera()}
+                    className="px-4 py-2 rounded-xl text-sm bg-black/50 text-white hover:bg-black/60 transition-colors"
+                  >
+                    重新对焦
+                  </button>
+                )}
+              </div>
             </div>
             {/* 取景框提示 */}
             <div className="absolute inset-0 pointer-events-none">
@@ -307,11 +463,11 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
       )}
 
       {/* 照片预览界面 */}
-      {capturedImage && !showCamera && (
+      {capturedImage && showPhotoPreview && !showCamera && (
         <div className="fixed inset-0 z-50 bg-black flex flex-col">
           <div className="flex-1 flex items-center justify-center p-4">
             <img
-              src={capturedImage}
+              src={capturedImage.dataUrl}
               alt="拍摄的照片"
               className="max-w-full max-h-full object-contain rounded-lg"
             />
@@ -337,11 +493,11 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
       <div className="border-t border-[#222] bg-[#0f0f0f] p-4">
         <div className="max-w-3xl mx-auto relative">
           {/* 已拍照片缩略图 */}
-          {capturedImage && !showCamera && (
+          {capturedImage && !showCamera && !showPhotoPreview && (
             <div className="mb-2 flex items-center gap-2">
               <div className="relative inline-block">
                 <img
-                  src={capturedImage}
+                  src={capturedImage.dataUrl}
                   alt="已拍摄"
                   className="h-16 w-16 object-cover rounded-lg border border-[#333]"
                 />

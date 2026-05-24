@@ -29,7 +29,16 @@ export default function ChatMessage({ message, isLoading }: ChatMessageProps) {
           <User size={16} />
         </div>
         <div className="max-w-[80%] rounded-2xl px-4 py-3 bg-[#4a9eff] text-white rounded-br-md">
-          <p className="leading-relaxed whitespace-pre-wrap">{message.content}</p>
+          {message.image && (
+            <img
+              src={message.image.dataUrl}
+              alt="用户上传图片"
+              className="mb-3 max-h-72 w-full rounded-xl object-cover border border-white/20"
+            />
+          )}
+          {message.content && (
+            <p className="leading-relaxed whitespace-pre-wrap">{message.content}</p>
+          )}
         </div>
       </div>
     );

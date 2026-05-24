@@ -5,7 +5,7 @@ import { streamChatCompletion } from '@/services/api';
 import Sidebar from '@/components/Sidebar';
 import ChatMessage from '@/components/ChatMessage';
 import ChatInput from '@/components/ChatInput';
-import type { Message } from '@/types';
+import type { ChatRequestMessage, Message, OutgoingMessagePayload } from '@/types';
 
 function estimateTokens(text: string): number {
   const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
@@ -32,6 +32,40 @@ CRITICAL RULES:
 5. Write reasoning in Chinese if the user writes in Chinese
 
 Now respond to: `;
+
+const IMAGE_ANALYSIS_PROMPT = '请分析这张图片，并结合我的问题回答。';
+
+function buildImageContent(text: string, imageUrl: string): ChatRequestMessage['content'] {
+  const trimmedText = text.trim();
+  const parts: ChatRequestMessage['content'] = [];
+
+  if (Array.isArray(parts)) {
+    if (trimmedText) {
+      parts.push({ type: 'text', text: trimmedText });
+    }
+
+    parts.push({
+      type: 'image_url',
+      image_url: { url: imageUrl },
+    });
+  }
+
+  return parts;
+}
+
+function toApiMessage(message: Message): ChatRequestMessage {
+  if (message.role === 'user' && message.image) {
+    return {
+      role: 'user',
+      content: buildImageContent(message.content || IMAGE_ANALYSIS_PROMPT, message.image.dataUrl),
+    };
+  }
+
+  return {
+    role: message.role as 'user' | 'assistant',
+    content: message.content,
+  };
+}
 
 export default function Home() {
   const {
@@ -84,13 +118,14 @@ export default function Home() {
   }, [currentConversation?.messages, isLoading]);
 
   const handleSendMessage = useCallback(
-    async (content: string) => {
+    async ({ content, image }: OutgoingMessagePayload) => {
       if (!currentConversationId) return;
 
       const userMessage: Message = {
         id: Date.now().toString(),
         role: 'user',
         content,
+        image,
         timestamp: Date.now(),
       };
 
@@ -112,15 +147,22 @@ export default function Home() {
 
       try {
         // Build messages with system prompt at the beginning
-        const historyMessages = currentConversation!.messages.map((m) => ({
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-        }));
+        const historyMessages = currentConversation!.messages.map(toApiMessage);
+        const currentPrompt = `${USER_PREFIX}\n\n${content.trim() || IMAGE_ANALYSIS_PROMPT}`;
+        const currentUserMessage: ChatRequestMessage = image
+          ? {
+              role: 'user',
+              content: buildImageContent(currentPrompt, image.dataUrl),
+            }
+          : {
+              role: 'user',
+              content: currentPrompt,
+            };
 
         const apiMessages = [
           { role: 'system' as const, content: SYSTEM_PROMPT },
           ...historyMessages,
-          { role: 'user' as const, content: `${USER_PREFIX}\n\n${content}` },
+          currentUserMessage,
         ];
 
         const stream = streamChatCompletion(

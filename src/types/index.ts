@@ -2,10 +2,16 @@ export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  image?: MessageImage;
   reasoning?: string;
   timestamp: number;
   tokens?: number;
   generationTime?: number;
+}
+
+export interface MessageImage {
+  dataUrl: string;
+  mimeType: string;
 }
 
 export interface Conversation {
@@ -24,9 +30,24 @@ export interface Settings {
   maxTokens: number;
 }
 
+export interface ChatTextContentPart {
+  type: 'text';
+  text: string;
+}
+
+export interface ChatImageContentPart {
+  type: 'image_url';
+  image_url: {
+    url: string;
+  };
+}
+
+export type ChatRequestContentPart = ChatTextContentPart | ChatImageContentPart;
+export type ChatRequestMessageContent = string | ChatRequestContentPart[];
+
 export interface ChatRequestMessage {
   role: 'user' | 'assistant' | 'system';
-  content: string;
+  content: ChatRequestMessageContent;
 }
 
 export interface ChatRequest {
@@ -35,4 +56,9 @@ export interface ChatRequest {
   temperature: number;
   max_tokens: number;
   stream: boolean;
+}
+
+export interface OutgoingMessagePayload {
+  content: string;
+  image?: MessageImage;
 }
