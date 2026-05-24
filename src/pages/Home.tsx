@@ -235,6 +235,11 @@ export default function Home() {
           displayMessage = '请求太频繁了，请等待 1-2 分钟后再试。';
         }
 
+        // 处理 413 请求体过大错误
+        if (errorMessage.includes('413') || errorMessage.includes('Payload Too Large')) {
+          displayMessage = '图片太大，无法发送。系统已自动压缩，如仍失败请尝试拍摄更小尺寸的照片。';
+        }
+
         updateMessage(
           currentConversationId,
           assistantMessageId,

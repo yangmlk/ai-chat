@@ -295,6 +295,32 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
     }
   };
 
+  function resizeAndCompress(
+    sourceCanvas: HTMLCanvasElement,
+    maxWidth: number,
+    quality: number
+  ): string {
+    const width = sourceCanvas.width;
+    const height = sourceCanvas.height;
+
+    if (width <= maxWidth) {
+      return sourceCanvas.toDataURL('image/jpeg', quality);
+    }
+
+    const scale = maxWidth / width;
+    const newWidth = maxWidth;
+    const newHeight = Math.round(height * scale);
+
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = newWidth;
+    tempCanvas.height = newHeight;
+    const ctx = tempCanvas.getContext('2d');
+    if (!ctx) return sourceCanvas.toDataURL('image/jpeg', quality);
+
+    ctx.drawImage(sourceCanvas, 0, 0, newWidth, newHeight);
+    return tempCanvas.toDataURL('image/jpeg', quality);
+  }
+
   // 拍照
   const takePhoto = () => {
     if (!videoRef.current || !canvasRef.current) return;
@@ -308,9 +334,9 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
     canvas.height = video.videoHeight || 720;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    const imageData = canvas.toDataURL('image/jpeg', 0.9);
+    const compressedData = resizeAndCompress(canvas, 1024, 0.8);
     setCapturedImage({
-      dataUrl: imageData,
+      dataUrl: compressedData,
       mimeType: 'image/jpeg',
     });
     setShowPhotoPreview(true);
