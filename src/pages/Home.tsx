@@ -1,5 +1,5 @@
-import { useEffect, useRef, useCallback } from 'react';
-import { Menu, Sparkles } from 'lucide-react';
+import { useEffect, useRef, useCallback, useState } from 'react';
+import { Menu, Sparkles, Loader2, Bot } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { streamChatCompletion } from '@/services/api';
 import Sidebar from '@/components/Sidebar';
@@ -86,6 +86,8 @@ export default function Home() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const startTimeRef = useRef<number>(0);
+  const [showWaiting, setShowWaiting] = useState(false);
+  const waitingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentConversation = conversations.find(
     (c) => c.id === currentConversationId
@@ -144,6 +146,15 @@ export default function Home() {
       };
 
       addMessage(currentConversationId, assistantMessage);
+
+      // 3秒后显示等待提示
+      setShowWaiting(false);
+      if (waitingTimerRef.current) {
+        clearTimeout(waitingTimerRef.current);
+      }
+      waitingTimerRef.current = setTimeout(() => {
+        setShowWaiting(true);
+      }, 3000);
 
       try {
         // Build messages with system prompt at the beginning
@@ -230,6 +241,11 @@ export default function Home() {
         addTokens(currentConversationId, finalTokens);
         setCurrentTokens(finalTokens);
       } catch (error) {
+        // 清除等待提示
+        if (waitingTimerRef.current) {
+          clearTimeout(waitingTimerRef.current);
+        }
+        setShowWaiting(false);
         const errorMessage = error instanceof Error ? error.message : '未知错误';
         let displayMessage = `抱歉，发生了错误：${errorMessage}`;
 
@@ -249,6 +265,11 @@ export default function Home() {
           displayMessage
         );
       } finally {
+        // 清除等待提示
+        if (waitingTimerRef.current) {
+          clearTimeout(waitingTimerRef.current);
+        }
+        setShowWaiting(false);
         setIsLoading(false);
       }
     },
@@ -296,6 +317,22 @@ export default function Home() {
                   isLoading={isLoading && message.role === 'assistant' && message.content === ''}
                 />
               ))}
+
+              {/* 等待中提示 */}
+              {showWaiting && isLoading && (
+                <div className="flex gap-3 flex-row animate-fadeIn">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-[#2a2a2a] text-[#4a9eff]">
+                    <Bot size={16} />
+                  </div>
+                  <div className="bg-[#1a1a1a] text-[#e8e4d9] rounded-2xl rounded-bl-md px-4 py-3 max-w-[85%]">
+                    <div className="flex items-center gap-2 text-sm text-gray-400">
+                      <Loader2 size={16} className="animate-spin text-[#4a9eff]" />
+                      <span>等待中，正在排队...</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div ref={messagesEndRef} />
             </div>
           )}
