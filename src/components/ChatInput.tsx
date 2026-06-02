@@ -636,7 +636,7 @@ export default function ChatInput({ onSend, isLoading }: ChatInputProps) {
             onInput={handleInput}
             placeholder={isListening ? '正在听您说...' : '输入消息... (Enter 发送, Shift+Enter 换行)'}
             rows={1}
-            className={`w-full bg-[#1a1a1a] text-[#e8e4d9] rounded-xl pl-4 pr-24 py-3 resize-none outline-none border resize-none outline-none transition-all placeholder:text-gray-500 max-h-[200px] ${
+            className={`w-full bg-[#1a1a1a] text-[#e8e4d9] rounded-xl pl-4 pr-24 py-3 resize-none outline-none border transition-all placeholder:text-gray-500 max-h-[200px] ${
               isListening
                 ? 'border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]'
                 : 'border-[#333] focus:border-[#4a9eff] focus:ring-1 focus:ring-[#4a9eff]/30'
