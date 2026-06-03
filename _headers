@@ -1,0 +1,7 @@
+# Cloudflare Pages 自定义响应头
+# 允许 CORS 跨域请求（用于直接调用 NVIDIA API）
+
+/*
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, POST, OPTIONS
+  Access-Control-Allow-Headers: Content-Type, Authorization

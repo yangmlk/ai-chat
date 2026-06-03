@@ -1,5 +1,9 @@
 import type { ChatRequestMessage } from '@/types';
 
+// Cloudflare Pages 环境检测
+const isCloudflarePages = typeof window !== 'undefined' && 
+  window.location.hostname.includes('pages.dev');
+
 export async function* streamChatCompletion(
   messages: ChatRequestMessage[],
   apiKey: string,
@@ -7,21 +11,39 @@ export async function* streamChatCompletion(
   temperature: number,
   maxTokens: number
 ): AsyncGenerator<string, void, unknown> {
-  const proxyUrl = '/api/chat';
+  // Cloudflare Pages 直接调用 API，其他环境使用代理
+  const targetUrl = isCloudflarePages ? apiUrl : '/api/chat';
+  
+  const requestInit: RequestInit = isCloudflarePages
+    ? {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'moonshotai/kimi-k2.6',
+          messages,
+          temperature,
+          max_tokens: maxTokens,
+          stream: true,
+        }),
+      }
+    : {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages,
+          temperature,
+          max_tokens: maxTokens,
+          apiKey,
+          apiUrl,
+        }),
+      };
 
-  const response = await fetch(proxyUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-      apiKey,
-      apiUrl,
-    }),
-  });
+  const response = await fetch(targetUrl, requestInit);
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
