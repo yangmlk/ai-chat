@@ -1,10 +1,11 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { Menu, Sparkles, Loader2, Bot } from 'lucide-react';
+import { Menu, Sparkles, Loader2, Bot, Presentation } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { streamChatCompletion } from '@/services/api';
 import Sidebar from '@/components/Sidebar';
 import ChatMessage from '@/components/ChatMessage';
 import ChatInput from '@/components/ChatInput';
+import PPTGenerator from '@/components/PPTGenerator';
 import type { ChatRequestMessage, Message, OutgoingMessagePayload } from '@/types';
 
 function estimateTokens(text: string): number {
@@ -88,6 +89,7 @@ export default function Home() {
   const startTimeRef = useRef<number>(0);
   const [showWaiting, setShowWaiting] = useState(false);
   const waitingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showPPTGenerator, setShowPPTGenerator] = useState(false);
 
   const currentConversation = conversations.find(
     (c) => c.id === currentConversationId
@@ -284,16 +286,26 @@ export default function Home() {
 
       <main className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <header className="flex items-center gap-3 px-4 py-3 border-b border-[#222]">
+        <header className="flex items-center justify-between px-4 py-3 border-b border-[#222]">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleSidebar}
+              className="lg:hidden p-2 rounded-lg hover:bg-[#1a1a1a] text-gray-400 transition-colors"
+            >
+              <Menu size={20} />
+            </button>
+            <h2 className="text-sm font-medium text-gray-400 truncate">
+              {currentConversation?.title || 'AI 助手'}
+            </h2>
+          </div>
           <button
-            onClick={toggleSidebar}
-            className="lg:hidden p-2 rounded-lg hover:bg-[#1a1a1a] text-gray-400 transition-colors"
+            onClick={() => setShowPPTGenerator(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1a1a1a] hover:bg-[#252525] text-gray-400 hover:text-[#e8e4d9] transition-colors text-sm border border-[#333]"
+            title="AI制作PPT"
           >
-            <Menu size={20} />
+            <Presentation size={14} />
+            <span>制作PPT</span>
           </button>
-          <h2 className="text-sm font-medium text-gray-400 truncate">
-            {currentConversation?.title || 'AI 助手'}
-          </h2>
         </header>
 
         {/* Messages Area */}
@@ -356,6 +368,11 @@ export default function Home() {
 
         {/* Input Area */}
         <ChatInput onSend={handleSendMessage} isLoading={isLoading} />
+
+        {/* PPT生成器弹窗 */}
+        {showPPTGenerator && (
+          <PPTGenerator onClose={() => setShowPPTGenerator(false)} />
+        )}
       </main>
     </div>
   );
